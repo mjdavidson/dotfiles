@@ -237,6 +237,10 @@ if.app-id = 'com.mitchellh.ghostty'
 run = 'move-node-to-workspace D'
 
 [[on-window-detected]]
+if.app-id = 'com.todesktop.230313mzl4w4u92'
+run = 'move-node-to-workspace D'
+
+[[on-window-detected]]
 if.app-id = 'com.microsoft.VSCode'
 run = 'move-node-to-workspace D'
 
@@ -252,6 +256,10 @@ run = 'move-node-to-workspace W'
 
 [[on-window-detected]]
 if.app-id = 'net.imput.helium'
+run = 'move-node-to-workspace W'
+
+[[on-window-detected]]
+if.app-id = 'com.google.Chrome'
 run = 'move-node-to-workspace W'
 
 # Productivity
@@ -294,10 +302,18 @@ run = 'move-node-to-workspace X'
 if.app-id = 'us.zoom.xos'
 run = 'move-node-to-workspace Z'
 
+[[on-window-detected]]
+if.app-id = 'com.granola.app'
+run = 'move-node-to-workspace Z'
+
 ## Floaters
 
 [[on-window-detected]]
 if.app-id = 'com.apple.Music'
+run = ['layout floating']
+
+[[on-window-detected]]
+if.app-id = 'com.apple.MobileSMS'
 run = ['layout floating']
 
 [[on-window-detected]]

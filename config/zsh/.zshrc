@@ -138,22 +138,17 @@ if command -v fzf &>/dev/null; then
   source <(fzf --zsh)
 fi
 
-# colored man pages
+# colored man pages (raw ANSI to avoid 18 tput fork/execs)
 export MANROFFOPT='-c'
-typeset -A man_colors=(
-  mb "$(tput bold; tput setaf 2)"
-  md "$(tput bold; tput setaf 6)"
-  me "$(tput sgr0)"
-  so "$(tput bold; tput setaf 3; tput setab 4)"
-  se "$(tput rmso; tput sgr0)"
-  us "$(tput smul; tput bold; tput setaf 7)"
-  ue "$(tput rmul; tput sgr0)"
-  mr "$(tput rev)"
-  mh "$(tput dim)"
-)
-for key val in "${(@kv)man_colors}"; do
-  export LESS_TERMCAP_$key=$val
-done
+export LESS_TERMCAP_mb=$'\e[1;32m'           # begin blink: bold green
+export LESS_TERMCAP_md=$'\e[1;36m'           # begin bold: bold cyan
+export LESS_TERMCAP_me=$'\e[0m'              # end mode
+export LESS_TERMCAP_so=$'\e[1;33;44m'        # begin standout: bold yellow on blue
+export LESS_TERMCAP_se=$'\e[0m'              # end standout
+export LESS_TERMCAP_us=$'\e[1;4;37m'         # begin underline: bold underline white
+export LESS_TERMCAP_ue=$'\e[0m'              # end underline
+export LESS_TERMCAP_mr=$'\e[7m'              # reverse
+export LESS_TERMCAP_mh=$'\e[2m'              # dim
 
 # directory jumping: prefer zoxide over z.sh
 if command -v zoxide &>/dev/null; then
@@ -166,7 +161,7 @@ fi
 colorflag=$(ls --color &>/dev/null && echo "--color" || echo "-G")
 
 # source local and config files
-for file in ~/.zshrc.local "$ZDOTDIR/.zsh_aliases"; do
+for file in ~/.zshrc.local "$ZDOTDIR/.zsh_prompt" "$ZDOTDIR/.zsh_aliases"; do
   [[ -f "$file" ]] && source "$file"
 done
 
@@ -190,3 +185,7 @@ fi
 if command -v starship &>/dev/null; then
   eval "$(starship init zsh)"
 fi
+
+export PNPM_HOME="$HOME/Library/pnpm"
+
+export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
