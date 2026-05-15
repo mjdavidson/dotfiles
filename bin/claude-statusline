@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#!/opt/homebrew/bin/bash
+# Requires bash 4+ for printf '\UXXXXXXXX' (system /bin/bash is 3.2 and only supports \uXXXX).
 
 # Colors
 RED='\033[0;31m'

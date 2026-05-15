@@ -32,3 +32,5 @@ typeset -aU path
 export EDITOR='nvim'
 export GIT_EDITOR='nvim'
 
+export RUSH_PNPM_STORE_PATH="$HOME/.rush-custom-store"
+

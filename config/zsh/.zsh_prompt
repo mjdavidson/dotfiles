@@ -171,11 +171,11 @@ async_init
 async_start_worker vcs_info
 async_register_callback vcs_info git_status_done
 
-_nn_precmd() {
+_prompt_precmd() {
     print -P "\n\e[1m%F{075}%~\e[0m $(node_prompt)"
     async_job vcs_info git_status "$PWD"
 }
-add-zsh-hook precmd _nn_precmd
+add-zsh-hook precmd _prompt_precmd
 
 
 export PROMPT='%(?.%F{006}.%F{009})$PROMPT_SYMBOL%f '
