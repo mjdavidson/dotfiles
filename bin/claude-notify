@@ -32,6 +32,19 @@ MSG="$ICON $SESSION"
 # tmux display-message (shown in status bar area briefly)
 tmux display-message -d 3000 "$MSG" 2>/dev/null
 
+# Ghostty native notification via OSC 777 (urxvt-style), forwarded through tmux DCS passthrough.
+# Requires `set -g allow-passthrough on` in tmux.conf. Ghostty owns the focus/dedup logic.
+TITLE="Claude Code"
+[ "$STATE" = "waiting" ] && TITLE="Claude Code — waiting"
+[ "$STATE" = "completed" ] && TITLE="Claude Code — done"
+BODY="$SESSION"
+[ -n "$TOOL" ] && BODY="$SESSION ($TOOL)"
+PANE_TTY=$(tmux display-message -t "$PANE_ID" -p '#{pane_tty}' 2>/dev/null)
+if [ -n "$PANE_TTY" ] && [ -w "$PANE_TTY" ]; then
+  # OSC 777 uses `;` as separator — sanitize to commas
+  printf '\033Ptmux;\033\033]777;notify;%s;%s\a\033\\' "${TITLE//;/,}" "${BODY//;/,}" > "$PANE_TTY" 2>/dev/null
+fi
+
 # Terminal bell (triggers tmux visual/audio bell depending on config)
 # Only if user is in a different session
 if [ "$CURRENT_SESSION" != "$SESSION" ]; then
