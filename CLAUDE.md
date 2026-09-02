@@ -9,14 +9,13 @@ Nick Nisi's dotfiles repo. Manages configs for zsh, neovim, tmux, ghostty, git, 
 - `bin/` — Scripts added to `$PATH` (claude-statusline, git helpers, etc.)
 - `tools/` — Tooling and helpers
 
-## Setup
+## Setup (this fork)
 
-```bash
-mise bootstrap --yes --skip-dirty                 # Converge the machine
-mise bootstrap dotfiles apply                     # Link all packages
-mise bootstrap dotfiles apply ~/.config/nvim      # Link one package
-mise bootstrap dotfiles unapply                   # Remove links
-```
+This machine is wired by hand-managed symlinks (`~/.config/{tmux,ghostty,nvim,aerospace,zsh,kitty,...}`
+and `~/.zshenv` point into this repo; `~/.claude/settings.json`, `~/.config/mise` and `~/.config/git`
+are real files that upstream's installer would replace). **Never run `install.sh`,
+`mise bootstrap`, or `mise bootstrap dotfiles apply` here.** Sync with upstream by rebasing
+the personal commits onto `origin/main` (origin = nicknisi/dotfiles, mjdavidson = this fork).
 
 ## Key conventions
 

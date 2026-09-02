@@ -76,11 +76,8 @@ if [[ -f "$OMARCHY_COLORS" ]]; then
   set_thm terminal_black  "$dark_bg"
 elif [[ "$(uname -s)" == "Darwin" ]]; then
   # ── macOS: hand-tuned scripts from the active bin/theme pack ─────────────
-  if [[ "$(defaults read -g AppleInterfaceStyle 2>/dev/null)" == "Dark" ]]; then
-    MODE=dark
-  else
-    MODE=light
-  fi
+  # This fork is always dark, whatever macOS appearance reports.
+  MODE=dark
   THEME_COLORS="$HOME/.config/theme/current/tmux-$MODE.sh"
   [[ -f "$THEME_COLORS" ]] || THEME_COLORS="$CURRENT_DIR/colors/$MODE.sh"
   # shellcheck disable=SC1090
@@ -154,8 +151,9 @@ tmux setw -g window-status-separator " #[fg=${thm_fg_gutter}]│ "
 tmux set -g status-style "bg=default,fg=white"
 
 # Icons and separators (Powerline symbols) - define first
-tm_separator_left=""
-tm_separator_right=""
+# Powerline separators (upstream went flat); Monaspace renders these via Nerd Font fallback.
+tm_separator_left=""
+tm_separator_right=""
 tm_icon=""
 tm_music_icon=""
 
@@ -204,17 +202,18 @@ tm_tunes_display="#(song=\$(current-song); if [[ -n \"\$song\" ]]; then echo \"#
 
 # Status line components
 session="$(create_section "left" "$tm_icon" "#S" "${thm_purple}" "${thm_bg}" "no-start")"
-tm_agent_display="#(fleet status --tmux #{session_name})"
 tm_git_status="$(create_section "right" "" "#(tmux-git-status '#{pane_current_path}')" "${thm_bg}" "${thm_fg}" "no-end")"
 
 # Status left and right - using the exact original syntax
 tmux set -g status-left "$session"
-tmux set -g status-right "${tm_agent_display}${tm_git_status}"
+tmux set -g status-right "${tm_git_status}"
 
-# Window status formats — names capped at 32 cells so app-set titles
-# (Claude tasks, fleet status) can't flood the status bar
-tmux setw -g window-status-format "#[fg=${thm_black4}]#{?#{window_name},#{=/32/…:window_name},#{b:pane_current_path}}"
-tmux setw -g window-status-current-format "#[fg=${thm_magenta},bold]#{?#{window_name},#{=/32/…:window_name},#{b:pane_current_path}}"
+# Window tabs: prefer the pane title (Claude Code publishes a live session
+# summary via OSC 0) over the window name, capped at 32 cells so app-set titles
+# can't flood the status bar.
+tab_label="#{?#{&&:#{!=:#{pane_title},},#{!=:#{pane_title},#{host}}},#{=/32/…:pane_title},#{?#{window_name},#{=/32/…:window_name},#{b:pane_current_path}}}"
+tmux setw -g window-status-format "#[fg=${thm_black4}]${tab_label}"
+tmux setw -g window-status-current-format "#[fg=${thm_magenta},bold]${tab_label}"
 
 # Clock mode
 tmux setw -g clock-mode-colour "${thm_blue0}"

@@ -12,21 +12,10 @@ after-login-command = []
 # You can use it to add commands that run after AeroSpace startup.
 # 'after-startup-command' is run after 'after-login-command'
 # Available commands : https://nikitabobko.github.io/AeroSpace/commands
-# SketchyBar's lifecycle is tied to AeroSpace: launched here, exited by the
-# aerospace_watchdog item in sketchybarrc when AeroSpace quits.
-after-startup-command = ['exec-and-forget sketchybar']
+after-startup-command = []
 
 # Start AeroSpace at login
-start-at-login = true
-
-# Notify SketchyBar about workspace changes (see config/sketchybar/sketchybarrc)
-exec-on-workspace-change = ['/bin/bash', '-c',
-  'sketchybar --trigger aerospace_workspace_change FOCUSED_WORKSPACE=$AEROSPACE_FOCUSED_WORKSPACE PREV_WORKSPACE=$AEROSPACE_PREV_WORKSPACE'
-]
-
-# Instant pill/app-icon refresh on any window focus change — catches new
-# windows of already-running apps that front_app_switched misses
-on-focus-changed = ['exec-and-forget sketchybar --trigger aerospace_focus_change']
+start-at-login = false
 
 # Normalizations. See: https://nikitabobko.github.io/AeroSpace/guide#normalization
 enable-normalization-flatten-containers = true
@@ -82,7 +71,7 @@ inner.horizontal = 12
 inner.vertical =   12
 outer.left =       12
 outer.bottom =     12
-outer.top =        [ { monitor."Built-in Retina Display" = 50 }, 50  ]
+outer.top =        [ { monitor."Built-in Retina Display" = 20 }, 25  ]
 outer.right =      12
 
 # 'main' binding mode declaration
@@ -188,7 +177,6 @@ alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
 alt-shift-semicolon = ['mode service', 'exec-and-forget sketchybar --trigger aerospace_mode_change MODE=service']
 
 # Cycle desktop themes (theme next)
-alt-0 = 'exec-and-forget /Users/nicknisi/Developer/dotfiles/bin/theme next'
 
 # Note: this is extremely inflexible, locking specific workspaces to specific monitors.
 # [workspace-to-monitor-force-assignment]
