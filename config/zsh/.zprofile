@@ -7,7 +7,10 @@ if [[ -d /opt/homebrew ]]; then
     export HOMEBREW_CELLAR=/opt/homebrew/Cellar
     export HOMEBREW_REPOSITORY=/opt/homebrew
     fpath=(/opt/homebrew/share/zsh/site-functions $fpath)
-    [[ ":$PATH:" == *":/opt/homebrew/bin:"* ]] || export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+    # Unconditional: path_helper (/etc/zprofile) has already placed /opt/homebrew/bin *after* /usr/bin via
+    # /etc/paths.d/homebrew, so a "prepend only if absent" guard would leave Apple's git/jq/bash winning.
+    # `typeset -aU path` in .zshenv drops the later duplicate.
+    path=(/opt/homebrew/bin /opt/homebrew/sbin $path)
     [[ ":${MANPATH-}:" == *":/opt/homebrew/share/man:"* ]] || export MANPATH="/opt/homebrew/share/man${MANPATH:+:$MANPATH}"
     export INFOPATH="/opt/homebrew/share/info${INFOPATH:+:$INFOPATH}"
 fi

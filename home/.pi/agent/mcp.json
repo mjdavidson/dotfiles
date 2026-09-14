@@ -11,7 +11,7 @@
       }
     },
     "sessions": {
-      "command": "/Users/nicknisi/.local/share/mise/installs/github-nicknisi-sessions/latest/sessions",
+      "command": "/opt/homebrew/bin/sessions",
       "args": [
         "--mcp"
       ],
