@@ -259,10 +259,8 @@ seg_add() {
 
 statusline=""
 
-# ── Identity (only show model if not Opus) ──
-if [[ "$model" != *[Oo]pus* ]]; then
-  statusline+="${model_icon} ${MAGENTA}${model}${RESET}"
-fi
+# ── Identity ──
+statusline+="${model_icon} ${MAGENTA}${model}${RESET}"
 if [ -n "$agent_name" ]; then
   statusline+=" ${DIM}(${agent_name})${RESET}"
 fi
