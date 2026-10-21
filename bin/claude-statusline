@@ -19,98 +19,130 @@ SEP="${DIM}│${RESET}"
 # macOS ships bash 3.2 whose printf does not interpret \u / \U escapes \u2014
 # it emits them as literal text. Use UTF-8 byte sequences (\xHH) instead,
 # which bash 3.2 printf does support.
-ICON_PROJECT="${BLUE}$(printf '\xee\x97\xbf')${RESET}"          # nf-md-folder      U+E5FF
-ICON_BRANCH="${GREEN}$(printf '\xee\x9c\xa5')${RESET}"          # nf-dev-git_branch U+E725
-ICON_CONTEXT="${MAGENTA}$(printf '\xf3\xb0\xa7\x91')${RESET}"   # nf-md-brain       U+F09D1
-ICON_COST="${GREEN}$(printf '\xef\x85\x95')${RESET}"            # nf-fa-dollar      U+F155
-ICON_STYLE="${CYAN}$(printf '\xf3\xb0\x8f\x98')${RESET}"        # nf-md-palette     U+F03D8
-ICON_USAGE="${YELLOW}$(printf '\xf3\xb0\x89\x81')${RESET}"      # nf-md-gauge       U+F0241
-ICON_LINES="${CYAN}$(printf '\xef\x91\x80')${RESET}"            # nf-fa-file_text   U+F440
-ICON_AGENT="${DIM}$(printf '\xf3\xb0\x9a\xa9')${RESET}"         # nf-md-robot       U+F06A9
+ICON_PROJECT="${BLUE}"$'\xee\x97\xbf'"${RESET}"          # nf-md-folder      U+E5FF
+ICON_BRANCH="${GREEN}"$'\xee\x9c\xa5'"${RESET}"          # nf-dev-git_branch U+E725
+ICON_CONTEXT="${MAGENTA}"$'\xf3\xb0\xa7\x91'"${RESET}"   # nf-md-brain       U+F09D1
+ICON_COST="${GREEN}"$'\xef\x85\x95'"${RESET}"            # nf-fa-dollar      U+F155
+ICON_STYLE="${CYAN}"$'\xf3\xb0\x8f\x98'"${RESET}"        # nf-md-palette     U+F03D8
+ICON_USAGE="${YELLOW}"$'\xf3\xb0\x89\x81'"${RESET}"      # nf-md-gauge       U+F0241
+ICON_LINES="${CYAN}"$'\xef\x91\x80'"${RESET}"            # nf-fa-file_text   U+F440
+ICON_AGENT="${DIM}"$'\xf3\xb0\x9a\xa9'"${RESET}"         # nf-md-robot       U+F06A9
 
 # Feature flags (set env vars to 0 to disable)
 SHOW_CONTEXT_TOKENS="${CLAUDE_STATUSLINE_TOKENS:-1}"
 SHOW_USAGE="${CLAUDE_STATUSLINE_USAGE:-1}"
 
-# Read JSON input from stdin
-input=$(cat)
+# Exec diet: every process spawn is inspected by endpoint security, so this
+# script avoids external commands on the hot path. One jq call extracts every
+# field (shell-quoted via @sh, then eval'd into an array); everything else is
+# bash builtins (printf -v, arithmetic, parameter expansion, [[ =~ ]]).
+
+# Read JSON input from stdin (builtin; no cat)
+input=$(</dev/stdin)
+
+# One jq: model, style, cost, added, removed, agent, pct, window,
+#         five used/reset, seven used/reset, rate_limits (compact JSON or "")
+# Each field is wrapped in try so one badly-typed field only blanks itself
+# (as when each field had its own jq call), not the whole line.
+eval "f=( $(jq -r 'def t(f): try (f | tostring) catch "";
+[
+  t(.model.display_name // "Unknown Model"),
+  t(.output_style.name // "default"),
+  t(.cost.total_cost_usd // 0),
+  t(.cost.total_lines_added // 0),
+  t(.cost.total_lines_removed // 0),
+  t(.agent.name // ""),
+  t(.context_window.used_percentage // 0),
+  t(.context_window.context_window_size // 200000),
+  t(.rate_limits.five_hour.used_percentage // ""),
+  t(.rate_limits.five_hour.resets_at // ""),
+  t(.rate_limits.seven_day.used_percentage // ""),
+  t(.rate_limits.seven_day.resets_at // ""),
+  t(if .rate_limits then (.rate_limits | tojson) else "" end)
+] | @sh' <<<"$input" 2>/dev/null) )"
+# $(...) used to strip trailing newlines from each field; keep that.
+for i in "${!f[@]}"; do
+  while [[ ${f[i]} == *$'\n' ]]; do f[i]=${f[i]%$'\n'}; done
+done
+# No defaults here: if jq failed, fields stay empty (matches the old per-field behaviour).
+model=${f[0]-} output_style=${f[1]-} cost=${f[2]-} added=${f[3]-} removed=${f[4]-}
+agent_name=${f[5]-} percent=${f[6]-} window=${f[7]-}
+five_used=${f[8]-} five_reset=${f[9]-} seven_used=${f[10]-} seven_reset=${f[11]-} limits=${f[12]-}
 
 # Tee rate_limits to a cache for sketchybar's usage pill (push, no polling
 # on the bar side). Writes atomically and only fires the trigger when the
-# payload actually changed, so most statusline refreshes cost one jq.
+# payload actually changed, so most statusline refreshes spawn nothing extra.
 tee_usage_cache() {
-  local cache="$HOME/.cache/claude-usage.json" limits
-  limits=$(echo "$input" | jq -c '.rate_limits // empty' 2>/dev/null)
+  local cache="$HOME/.cache/claude-usage.json" old
   [ -n "$limits" ] || return 0
-  [ "$limits" = "$(cat "$cache" 2>/dev/null)" ] && return 0
+  old=""
+  [[ -r $cache ]] && old=$(<"$cache")
+  [ "$limits" = "$old" ] && return 0
   printf '%s' "$limits" >"${cache}.tmp" && mv "${cache}.tmp" "$cache"
   command -v sketchybar >/dev/null 2>&1 && sketchybar --trigger claude_usage_update &
 }
 tee_usage_cache
 
-# Helper functions for extracting data
-get_model_name() { echo "$input" | jq -r '.model.display_name // "Unknown Model"' | sed 's/ (.*)//'; }
+# Strip " (...)" suffix from the model name (same as sed 's/ (.*)//')
+if [[ $model == *$'\n'* ]]; then
+  model=$(printf '%s\n' "$model" | sed 's/ (.*)//')   # rare: line-based like before
+elif [[ $model == *" ("* ]]; then
+  rest=${model#* (}
+  [[ $rest == *")"* ]] && model=${model%% (*}${rest##*)}
+fi
 
-# Get model-specific icon based on model name
-get_model_icon() {
-  local model_name=$(get_model_name)
-  case "$model_name" in
-  *[Oo]pus*) printf "${MAGENTA}\xf3\xb0\x87\xa5${RESET}" ;;   # nf-md-brain_freeze U+F01E5
-  *[Ss]onnet*) printf "${CYAN}\xf3\xb0\x9d\x9a${RESET}" ;;    # nf-md-music_note   U+F075A
-  *[Hh]aiku*) printf "${GREEN}\xf3\xb0\x9c\xb5${RESET}" ;;    # nf-md-leaf         U+F0735
-  *) printf "${DIM}\xf3\xb0\x9a\xa9${RESET}" ;;               # nf-md-robot        U+F06A9
-  esac
-}
-get_output_style() { echo "$input" | jq -r '.output_style.name // "default"'; }
-get_current_dir() { echo "$input" | jq -r '.workspace.current_dir // "."'; }
-get_project_dir() { echo "$input" | jq -r '.workspace.project_dir // "."'; }
-get_cost() {
-  local cost=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
-  printf "${DIM}\$%.2f${RESET}" "$cost"
-}
+# Model icon
+case "$model" in
+*[Oo]pus*) printf -v model_icon "${MAGENTA}\xf3\xb0\x87\xa5${RESET}" ;;   # nf-md-brain_freeze U+F01E5
+*[Ss]onnet*) printf -v model_icon "${CYAN}\xf3\xb0\x9d\x9a${RESET}" ;;    # nf-md-music_note   U+F075A
+*[Hh]aiku*) printf -v model_icon "${GREEN}\xf3\xb0\x9c\xb5${RESET}" ;;    # nf-md-leaf         U+F0735
+*) printf -v model_icon "${DIM}\xf3\xb0\x9a\xa9${RESET}" ;;               # nf-md-robot        U+F06A9
+esac
 
-get_lines_changed() {
-  local added=$(echo "$input" | jq -r '.cost.total_lines_added // 0')
-  local removed=$(echo "$input" | jq -r '.cost.total_lines_removed // 0')
-  [ "$added" = "0" ] && [ "$removed" = "0" ] && return
-  printf "${GREEN}+%d${RESET}/${RED}-%d${RESET}" "$added" "$removed"
-}
+printf -v cost_display "${DIM}\$%.2f${RESET}" "$cost"
 
-get_agent_name() {
-  echo "$input" | jq -r '.agent.name // empty'
-}
+lines_display=""
+if ! { [ "$added" = "0" ] && [ "$removed" = "0" ]; }; then
+  printf -v lines_display "${GREEN}+%d${RESET}/${RED}-%d${RESET}" "$added" "$removed"
+fi
 
-get_context_percent() {
-  # Use pre-calculated percentage from Claude Code (recommended approach)
-  local percent=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
-  # Round to integer for display
-  printf "%.0f" "$percent"
-}
-
+# Tokens used: percent * window / 100, truncated (bc scale=0 semantics),
+# done in integer arithmetic. Falls back to bc for odd number formats.
 get_context_used() {
-  # Calculate tokens from percentage and window size (most accurate)
-  local percent=$(echo "$input" | jq -r '.context_window.used_percentage // 0')
-  local window=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
-  local used=$(echo "$percent * $window / 100" | bc)
+  local used ip fp d
+  if [[ $percent =~ ^[0-9]+(\.[0-9]+)?$ && $window =~ ^[0-9]+$ && ${#percent} -le 18 ]]; then
+    ip=${percent%%.*} fp=""
+    [[ $percent == *.* ]] && fp=${percent#*.}
+  fi
+  # digits(percent) + digits(window) <= 18 keeps the product below 2^63
+  if [[ -n $ip$fp ]] && (( ${#ip} + ${#fp} + ${#window} <= 18 )); then
+    d=${#fp}
+    used=$(( 10#$ip$fp * 10#$window / (10 ** d * 100) ))
+  else
+    used=$(echo "$percent * $window / 100" | bc)
+    if [ "$used" -ge 1000 ]; then
+      printf "%.0fK" "$(echo "scale=0; $used / 1000" | bc)"
+    else
+      printf "%d" "$used"
+    fi
+    return
+  fi
   if [ "$used" -ge 1000 ]; then
-    printf "%.0fK" "$(echo "scale=0; $used / 1000" | bc)"
+    printf "%dK" $((used / 1000))
   else
     printf "%d" "$used"
   fi
 }
 
-# Build a progress bar with color based on percentage
-build_context_bar() {
-  local used=$(get_context_percent)
-  local remaining=$((100 - used))
-  local bar_width=5
-  local filled=$((remaining * bar_width / 100))
-  local empty=$((bar_width - filled))
+# Pick filled/empty bar and color for a remaining percentage -> $bar, $bar_color
+make_bar() {
+  local remaining="$1" bar_width=5 filled empty i
+  filled=$((remaining * bar_width / 100))
+  empty=$((bar_width - filled))
 
   [ "$filled" -gt "$bar_width" ] && filled=$bar_width && empty=0
   [ "$filled" -lt 0 ] && filled=0 && empty=$bar_width
 
-  local bar_color
   if [ "$remaining" -gt 50 ]; then
     bar_color="$GREEN"
   elif [ "$remaining" -gt 20 ]; then
@@ -119,17 +151,21 @@ build_context_bar() {
     bar_color="$RED"
   fi
 
-  local bar=""
+  bar=""
   for ((i = 0; i < filled; i++)); do bar+="━"; done
   for ((i = 0; i < empty; i++)); do bar+="╌"; done
-
-  if [ "$SHOW_CONTEXT_TOKENS" = "1" ]; then
-    local tokens=$(get_context_used)
-    printf "%s%s%s %d%% ${DIM}(%s)${RESET}" "$bar_color" "$bar" "$RESET" "$remaining" "$tokens"
-  else
-    printf "%s%s%s %d%%" "$bar_color" "$bar" "$RESET" "$remaining"
-  fi
 }
+
+# Context bar
+printf -v used_pct "%.0f" "$percent"
+remaining=$((100 - used_pct))
+make_bar "$remaining"
+if [ "$SHOW_CONTEXT_TOKENS" = "1" ]; then
+  tokens=$(get_context_used)
+  printf -v context_bar "%s%s%s %d%% ${DIM}(%s)${RESET}" "$bar_color" "$bar" "$RESET" "$remaining" "$tokens"
+else
+  printf -v context_bar "%s%s%s %d%%" "$bar_color" "$bar" "$RESET" "$remaining"
+fi
 
 # ── Usage limits ──────────────────────────────────────────────────────────────
 #
@@ -138,109 +174,54 @@ build_context_bar() {
 # vs. enterprise) — no keychain/token guessing. Enterprise billing omits the
 # field entirely, so nothing renders. `resets_at` is epoch seconds.
 
-# Format an epoch-seconds timestamp to a human-readable time-until string
+# Epoch-seconds timestamp -> human-readable time-until string in $time_until
 format_time_until() {
-  local reset_epoch="$1"
-  [ -z "$reset_epoch" ] && { echo "?"; return; }
-
-  local now
-  now=$(date "+%s")
+  local reset_epoch="$1" now secs mins hours days
+  printf -v now '%(%s)T' -1
   if [ "$now" -ge "$reset_epoch" ]; then
-    echo "now"
+    time_until="now"
     return
   fi
 
-  local secs=$((reset_epoch - now))
-  local mins=$((secs / 60))
-  local hours=$((mins / 60))
-  local days=$((hours / 24))
+  secs=$((reset_epoch - now))
+  mins=$((secs / 60))
+  hours=$((mins / 60))
+  days=$((hours / 24))
 
   if [ "$days" -gt 0 ]; then
-    printf "%dd%dh" "$days" $((hours % 24))
+    printf -v time_until "%dd%dh" "$days" $((hours % 24))
   elif [ "$hours" -gt 0 ]; then
-    printf "%dh%dm" "$hours" $((mins % 60))
+    printf -v time_until "%dh%dm" "$hours" $((mins % 60))
   else
-    printf "%dm" "$mins"
+    printf -v time_until "%dm" "$mins"
   fi
 }
 
-# Build a mini usage bar for a single window
-# Args: $1=remaining_pct (0-100), $2=label ("5h"/"7d"), $3=time_until
-build_usage_bar() {
-  local remaining="$1" label="$2" time_until="$3"
-  local bar_width=5
-  local filled=$((remaining * bar_width / 100))
-  local empty=$((bar_width - filled))
-
-  [ "$filled" -gt "$bar_width" ] && filled=$bar_width && empty=0
-  [ "$filled" -lt 0 ] && filled=0 && empty=$bar_width
-
-  local bar_color
-  if [ "$remaining" -gt 50 ]; then
-    bar_color="$GREEN"
-  elif [ "$remaining" -gt 20 ]; then
-    bar_color="$YELLOW"
-  else
-    bar_color="$RED"
-  fi
-
-  local bar=""
-  for ((i = 0; i < filled; i++)); do bar+="━"; done
-  for ((i = 0; i < empty; i++)); do bar+="╌"; done
-
-  printf "${DIM}%s${RESET} %s%s%s %d%% ${DIM}↻%s${RESET}" \
+# Render one rate-limit window into $window_out, or "" if it's absent.
+# Args: $1=used_percentage, $2=resets_at, $3=label (5h/7d)
+render_usage_window() {
+  local used="$1" reset="$2" label="$3" remaining
+  window_out=""
+  [ -z "$reset" ] && return
+  printf -v used "%.0f" "${used:-0}"
+  remaining=$((100 - used))
+  if [[ $reset =~ ^[0-9]+$ ]]; then format_time_until "$reset"; else time_until=""; fi
+  make_bar "$remaining"
+  printf -v window_out "${DIM}%s${RESET} %s%s%s %d%% ${DIM}↻%s${RESET}" \
     "$label" "$bar_color" "$bar" "$RESET" "$remaining" "$time_until"
 }
 
-# Render one rate-limit window from stdin, or nothing if it's absent.
-# Args: $1=json key (five_hour/seven_day), $2=label (5h/7d)
-render_usage_window() {
-  local key="$1" label="$2"
-  local used reset
-  used=$(echo "$input" | jq -r ".rate_limits.${key}.used_percentage // empty")
-  reset=$(echo "$input" | jq -r ".rate_limits.${key}.resets_at // empty")
-  [ -z "$reset" ] && return
-  used=$(printf "%.0f" "${used:-0}")
-  build_usage_bar "$((100 - used))" "$label" "$(format_time_until "$reset")"
-}
-
-# Build usage display string from stdin rate_limits
-build_usage_display() {
-  [ "$SHOW_USAGE" = "1" ] || return
-
-  local five seven
-  five=$(render_usage_window five_hour "5h")
-  seven=$(render_usage_window seven_day "7d")
-
+usage_display=""
+if [ "$SHOW_USAGE" = "1" ]; then
+  render_usage_window "$five_used" "$five_reset" "5h"; five=$window_out
+  render_usage_window "$seven_used" "$seven_reset" "7d"; seven=$window_out
   # No active rate windows (e.g., enterprise billing) — nothing to show
   if [ -n "$five" ] && [ -n "$seven" ]; then
-    printf "%s ${DIM}╱${RESET} %s" "$five" "$seven"
+    printf -v usage_display "%s ${DIM}╱${RESET} %s" "$five" "$seven"
   else
-    printf "%s%s" "$five" "$seven"
+    printf -v usage_display "%s%s" "$five" "$seven"
   fi
-}
-
-# Extract values
-model=$(get_model_name)
-model_icon=$(get_model_icon)
-output_style=$(get_output_style)
-current_dir=$(get_current_dir)
-project_dir=$(get_project_dir)
-cost_display=$(get_cost)
-context_bar=$(build_context_bar)
-usage_display=$(build_usage_display)
-lines_display=$(get_lines_changed)
-agent_name=$(get_agent_name)
-
-# Get project name and handle subdirectory display
-project=$(basename "$project_dir")
-if [ "$current_dir" != "$project_dir" ]; then
-  subdir=$(basename "$current_dir")
-  project="${project} (CWD: ${subdir}/)"
 fi
-
-# Get git branch
-git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "no-git")
 
 # Terminal width for adaptive display (tmux pane-aware)
 if [ -n "$TMUX" ]; then
@@ -248,6 +229,52 @@ if [ -n "$TMUX" ]; then
 else
   term_width="${COLUMNS:-$(tput cols 2>/dev/null || echo 200)}"
 fi
+
+# Git branch (only shown on wide terminals). Resolved by reading .git/HEAD
+# directly; falls back to `git` for anything unusual (packed refs, reftable,
+# bare repos, GIT_* env overrides, ownership mismatch, ...).
+resolve_git_branch() {
+  [[ -n $GIT_DIR$GIT_WORK_TREE$GIT_CEILING_DIRECTORIES$GIT_DISCOVERY_ACROSS_FILESYSTEM ]] && return 1
+  local d gd="" line head name common c
+  d=$(builtin pwd -P)
+  [[ $d == */.git || $d == */.git/* ]] && return 1
+  [[ -f $d/HEAD && -d $d/objects ]] && return 1
+  while :; do
+    if [[ -d $d/.git ]]; then
+      gd=$d/.git
+      break
+    elif [[ -f $d/.git ]]; then
+      read -r line <"$d/.git" || return 1
+      [[ $line == "gitdir: "* ]] || return 1
+      gd=${line#gitdir: }
+      [[ $gd == /* ]] || gd=$d/$gd
+      break
+    fi
+    [[ -z $d ]] && break
+    d=${d%/*}
+  done
+  if [[ -z $gd ]]; then
+    git_branch="no-git"
+    return 0
+  fi
+  [[ -O $gd && -f $gd/HEAD ]] || return 1
+  read -r head <"$gd/HEAD" || return 1
+  common=$gd
+  if [[ -f $gd/commondir ]]; then
+    read -r c <"$gd/commondir" || return 1
+    [[ $c == /* ]] && common=$c || common=$gd/$c
+  fi
+  if [[ $head == "ref: refs/heads/"* ]]; then
+    name=${head#ref: refs/heads/}
+    [[ -f $common/refs/heads/$name ]] || return 1
+    [[ -e $common/refs/tags/$name || -e $common/refs/remotes/$name || -e $common/refs/$name ]] && return 1
+    git_branch=$name
+  elif [[ $head =~ ^[0-9a-f]{40,64}$ ]]; then
+    git_branch="HEAD"
+  else
+    return 1
+  fi
+}
 
 # Build segments — order: identity → impact → resources → meta
 seg_add() {
@@ -286,6 +313,7 @@ fi
 
 # Prepend branch on wide terminals
 if [ "$term_width" -gt 120 ]; then
+  resolve_git_branch || git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "no-git")
   statusline="${ICON_BRANCH} ${GREEN}${git_branch}${RESET} ${SEP} ${statusline}"
 fi
 
